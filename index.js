@@ -5,13 +5,10 @@ const defaultOptions = {
   silent: false,
   ignore: undefined,
 };
-const _collectedModules = [];
 
 class WebpackFixStyleOnlyEntriesPlugin {
   constructor(options) {
-    _collectedModules.length = 0;
     this.apply = this.apply.bind(this);
-
     this.options = Object.assign({}, defaultOptions, options);
   }
 
@@ -33,10 +30,11 @@ class WebpackFixStyleOnlyEntriesPlugin {
         if (!file.endsWith(".js") && !file.endsWith(".mjs")) return;
         if (!chunk.hasEntryModule()) return;
 
-        const rawResources = collectEntryResources(chunk.entryModule);
-        const resources = this.options.ignore
-          ? rawResources.filter(r => !r.match(this.options.ignore))
-          : rawResources;
+        const ignore = this.options.ignore;
+        const resources = collectEntryResources(chunk.entryModule).filter(r => {
+          // Not let webpack-dev-server inject it's client.js, because in this case plugin can't identify the resource as styles only 
+          return !r.match(/node_modules[\\\/]+webpack-dev-server/i) && (!ignore || !r.match(ignore));
+        });
 
         const isStyleOnly =
           resources.length &&
@@ -56,7 +54,8 @@ class WebpackFixStyleOnlyEntriesPlugin {
   }
 }
 
-function collectEntryResources(module, level = 0) {
+// Don't cache collectedModules for different compilation iterations
+function collectEntryResources(module, collectedModules = []) {
   if (typeof module.resource == "string") {
     return [module.resource];
   }
@@ -66,9 +65,9 @@ function collectEntryResources(module, level = 0) {
     module.dependencies.forEach(dep => {
       if (dep && (dep.module || dep.originModule)) {
         const nextModule = dep.module || dep.originModule;
-        if (_collectedModules.indexOf(nextModule.id) === -1) {
-          _collectedModules.push(nextModule.id);
-          const depResources = collectEntryResources(nextModule, level + 1);
+        if (collectedModules.indexOf(nextModule.id) === -1) {
+          collectedModules.push(nextModule.id);
+          const depResources = collectEntryResources(nextModule, collectedModules);
           Array.prototype.push.apply(resources, depResources);
         }
       }
